@@ -1,6 +1,15 @@
 import User from '../models/user.model';
 import merge from 'lodash/merge';
 import errorHandler from './../helpers/dbErrorHandler';
+import formidable from 'formidable';
+import fs from 'fs';
+import { extend } from 'lodash';
+import defaultlmage from './../../client/assets/images/profile-pic.png';
+import { CloudUpload } from '@material-ui/icons';
+import { json } from 'body-parser';
+import { exec } from 'child_process';
+import { error } from 'console';
+import { rules } from 'eslint-config-prettier';
 
 const create = async (req, res) => {
   const user = new User(req.body);
@@ -29,8 +38,12 @@ const list = async (req, res) => {
 
 const userById = async (req, res, next, id) => {
   try {
-    let user = await User.findById({_id: id});
-    if(!user) {
+    let user = await User.findById({ _id: id })
+      .populate('following', '_id name')
+      .populate('follower', '_id name')
+      .exec();
+
+    if (!user) {
       return res.status(400).json({
         error: 'User not found'
       });
@@ -52,20 +65,104 @@ const read = (req, res) => {
   return res.json(req.profile);
 };
 
-const update = async (req, res, next) => {
-  try {
-    let user = req.profile;
-    user = merge(user, req.body);
+const update = async (req, res) => {
+  const form = new formidable.IncomingForm();
+  form.keepExtension = true;
+  form.parse(req, async (err, fields, files) => {
+    try {
+      if (err) {
+        return res.status(400).json({
+          error: 'photo could not be uploaded'
+        });
+      }
+      let user = req.profile;
+      user = extend(user, fields);
+      user.update = Date.now();
 
-    user.updated = Date.now();
-    await user.save();
-    user.hashed_password = '';
-    user.salt = '';
-    res.json(user);
+
+      if (files.photo) {
+        user.photo.Data = fs.readFileSync(files.photo.filepath);
+        user.photo.contentType = files.photo.type;
+      }
+      await user.save();
+      user.hashed_password = '';
+      user.salt = '';
+
+      res.json({ user });
+    } catch (err) {
+      return res.status(400).json({
+        error: errorHandler.getErrorMessage(err)
+      });
+    }
+  });
+
+};
+const addFollower = async (req, res) => {
+
+  try {
+    const result = await User.UserfindByldAndUpdate(
+      req.body.followld,
+      { $push: { Followers: req.body.userld } },
+      { new: true }
+    )
+      .populate('following', '_id name')
+      .populate('followers', '_id name')
+    exec();
+    result.hashed_password = undefined;
+    result.salt = undefined;
+    res.json(result);
   } catch (err) {
-    console.log(err);
     return res.status(400).json({
       error: errorHandler.getErrorMessage(err)
+    });
+  }
+};
+
+
+const defaultphoto = (req, res) => {
+  return res.sendFile('${process.cwd()}${defaultlmage}')
+};
+
+const addFollowing = async (req, res, next) => {
+  try {
+    await User.findByIdAndUpdate(
+      req.body.userld,
+      { $push: { Following: req.body.Followld } });
+    next();
+  } catch (err) {
+    return res.status(400).json({
+      error: errorHandler.getErrorMessage(err)
+    });
+  }
+};
+
+const removeFollower = async (req, res) => {
+  try {
+    const result = await User.findByIdAndUpdate(
+      req.body.unfollowld,
+      { $pull: { followers: req.body.userId } },
+      { new: true }
+    )
+      .populate('following', '_id name')
+      .populate('followers', '_id name')
+    exec();
+    res.json(result);
+  } catch (err) {
+    return res.status(400).json({
+      error: errorHandler.getErrorMessage()
+    });
+  }
+};
+
+const removeFollowing = async (req, res, next) => {
+  try {
+    await User.findByIdAndUpdate(
+      req.body.userId,
+      { $pull: { Following: req.body.unfollowId } });
+    next();
+  } catch (err) {
+    return res.status(400).json({
+      error: errorHandler.getErrorMessage()
     });
   }
 };
@@ -79,7 +176,7 @@ const remove = async (req, res, next) => {
     deletedUser.hashed_password = '';
     deletedUser.salt = '';
     res.json(deletedUser);
-  } catch(err) {
+  } catch (err) {
     console.log(err);
     return res.status(400).json({
       error: errorHandler.getErrorMessage(err)
@@ -93,5 +190,10 @@ export default {
   read,
   remove,
   userById,
-  update
+  update,
+  defaultphoto,
+  addFollower,
+  addFollowing,
+  removeFollower,
+  removeFollowing,
 };
